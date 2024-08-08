@@ -1,20 +1,22 @@
 import { useState, useEffect } from "react";
 import { ethers } from "ethers";
-import pokemon_abi from "../artifacts/contracts/SimplePokemonGame.sol/SimplePokemonGame.json";
+import coinflip_abi from "../artifacts/contracts/SimpleCoinFlip.sol/SimpleCoinFlip.json";
 
 export default function HomePage() {
   const [ethWallet, setEthWallet] = useState(null);
   const [account, setAccount] = useState(null);
-  const [pokemonContract, setPokemonContract] = useState(null);
-  const [pokemons, setPokemons] = useState([]);
-  const [selectedPokemon, setSelectedPokemon] = useState(0);
-  const [fruit, setFruit] = useState('');
+  const [coinflipContract, setCoinflipContract] = useState(null);
+  const [balance, setBalance] = useState(0);
+  const [betAmount, setBetAmount] = useState('');
+  const [selectedSide, setSelectedSide] = useState('Heads');
+  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
-  const pokemonABI = pokemon_abi.abi;
+  const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3"; // Replace with your deployed contract address
+  const coinflipABI = coinflip_abi.abi;
 
+  // Initialize the Ethereum wallet
   const getWallet = async () => {
     if (window.ethereum) {
       setEthWallet(window.ethereum);
@@ -23,6 +25,7 @@ export default function HomePage() {
     }
   };
 
+  // Handle the account change
   const handleAccount = (accounts) => {
     if (accounts.length > 0) {
       setAccount(accounts[0]);
@@ -31,6 +34,7 @@ export default function HomePage() {
     }
   };
 
+  // Connect MetaMask wallet
   const connectAccount = async () => {
     if (!ethWallet) {
       alert('MetaMask wallet is required to connect');
@@ -46,114 +50,200 @@ export default function HomePage() {
     }
   };
 
-  const getPokemonContract = () => {
+  // Initialize the contract
+  const getCoinflipContract = () => {
     if (ethWallet) {
-      const provider = new ethers.providers.Web3Provider(ethWallet);
+      const provider = new ethers.providers.JsonRpcProvider("http://localhost:8545");
       const signer = provider.getSigner();
-      const contract = new ethers.Contract(contractAddress, pokemonABI, signer);
-      setPokemonContract(contract);
+      const contract = new ethers.Contract(contractAddress, coinflipABI, signer);
+      setCoinflipContract(contract);
     }
   };
 
-  const getPokemons = async () => {
-    if (pokemonContract) {
-      setLoading(true);
-      setError(null); // Reset error state
+  // Fetch the balance of the player
+  const getBalance = async () => {
+    if (coinflipContract && account) {
       try {
-        const pokemonDetails = [];
-        for (let i = 0; i < 3; i++) {
-          const [name, trustLevel] = await pokemonContract.getPokemonDetail(i);
-          console.log(name, trustLevel);
-          pokemonDetails.push({ name, trustLevel: parseInt(trustLevel.toString()) });
+        const balance = await coinflipContract.getPlayerBalance(account);
+        setBalance(parseInt(balance.toString()));
+      } catch (error) {
+        console.error("Error fetching balance:", error);
+        setError("Error fetching balance");
+      }
+    }
+  };
+
+  // Flip the coin and update balance
+  const flipCoin = async () => {
+    if (coinflipContract && account) {
+      setLoading(true);
+      setError(null);
+      setResult(null);
+      try {
+        const playerBalance = await coinflipContract.getPlayerBalance(account);
+        const betAmountAsNumber = parseInt(betAmount);
+
+        if (playerBalance < betAmountAsNumber) {
+          setError("Insufficient balance.");
+          setLoading(false);
+          return;
         }
-        setPokemons(pokemonDetails);
+
+        const tx = await coinflipContract.flip(
+          selectedSide === 'Heads' ? 0 : 1,
+          betAmountAsNumber
+        );
+        const receipt = await tx.wait();
+        const event = receipt.events.find(event => event.event === 'CoinFlipped');
+        const { choice, result: tossResult, won } = event.args;
+        setResult({
+          choice: choice === 0 ? 'Heads' : 'Tails',
+          result: tossResult === 0 ? 'Heads' : 'Tails',
+          won
+        });
+        getBalance();
       } catch (error) {
-        console.error("Error fetching Pokémon details:", error);
-        setError("Error fetching Pokémon details");
+        console.error("Error flipping coin:", error);
+        setError(`Error flipping coin: ${error.message}`);
       }
       setLoading(false);
     }
   };
 
-  const feedPokemon = async () => {
-    if (pokemonContract) {
-      setLoading(true);
-      setError(null); // Reset error state
-      try {
-        const tx = await pokemonContract.feedPokemon(selectedPokemon, fruit);
-        await tx.wait();
-        getPokemons();
-      } catch (error) {
-        console.error("Error feeding Pokémon:", error);
-        setError("Error feeding Pokémon");
-      }
-      setLoading(false);
-    }
-  };
-
+  // Effect to initialize the wallet and contract
   useEffect(() => {
     getWallet();
   }, []);
 
+  // Effect to initialize the contract when wallet is available
   useEffect(() => {
     if (ethWallet) {
-      getPokemonContract();
+      getCoinflipContract();
     }
   }, [ethWallet]);
 
+  // Effect to fetch balance when contract or account changes
   useEffect(() => {
-    if (pokemonContract) {
-      getPokemons();
+    if (coinflipContract && account) {
+      getBalance();
     }
-  }, [pokemonContract]);
+  }, [coinflipContract, account]);
 
   return (
     <main className="container">
-      <header><h1>Welcome to the Simple Pokémon Game!</h1></header>
-      {!ethWallet && <p>Please install MetaMask to use this application.</p>}
-      {ethWallet && !account && <button onClick={connectAccount}>Connect MetaMask Wallet</button>}
-      {account && (
-        <div>
-          <p>Your Account: {account}</p>
-          {loading ? (
-            <p>Loading...</p>
-          ) : error ? (
-            <p>{error}</p>
-          ) : (
-            <div>
-              <p>Pokémon List:</p>
-              <ul>
-                {pokemons.length > 0 ? (
-                  pokemons.map((pokemon, index) => (
-                    <li key={index}>
-                      {pokemon.name} - Trust Level: {pokemon.trustLevel}
-                    </li>
-                  ))
-                ) : (
-                  <p>No Pokémon found</p>
+      <header>
+        <h1>Simple Coin Flip Game</h1>
+      </header>
+      <section className="info">
+        {!ethWallet ? (
+          <p>Please install MetaMask to use this application.</p>
+        ) : !account ? (
+          <button className="button" onClick={connectAccount}>Connect MetaMask Wallet</button>
+        ) : (
+          <div className="account-info">
+            <p>Your Account: {account}</p>
+            <p>Balance: {balance} coins</p>
+            {loading ? (
+              <p className="loading">Loading...</p>
+            ) : error ? (
+              <p className="error">{error}</p>
+            ) : (
+              <div className="game-controls">
+                <select className="select" onChange={(e) => setSelectedSide(e.target.value)} value={selectedSide}>
+                  <option value="Heads">Heads</option>
+                  <option value="Tails">Tails</option>
+                </select>
+                <input
+                  className="input"
+                  type="number"
+                  placeholder="Enter bet amount"
+                  value={betAmount}
+                  onChange={(e) => setBetAmount(e.target.value)}
+                />
+                <button className="button" onClick={flipCoin}>Flip Coin</button>
+                {result && (
+                  <div className={`result ${result.won ? 'won' : 'lost'}`}>
+                    <p>You chose: {result.choice}</p>
+                    <p>Result: {result.result}</p>
+                    <p className={result.won ? 'won' : 'lost'}>
+                      {result.won ? 'You won!' : 'You lost!'}
+                    </p>
+                  </div>
                 )}
-              </ul>
-              <select onChange={(e) => setSelectedPokemon(e.target.value)} value={selectedPokemon}>
-                {pokemons.map((_, index) => (
-                  <option key={index} value={index}>Pokemon {index + 1}</option>
-                ))}
-              </select>
-              <input
-                type="text"
-                placeholder="Enter fruit (apple/orange)"
-                value={fruit}
-                onChange={(e) => setFruit(e.target.value)}
-              />
-              <button onClick={feedPokemon}>Feed Pokémon</button>
-            </div>
-          )}
-        </div>
-      )}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
       <style jsx>{`
         .container {
+          max-width: 600px;
+          margin: auto;
+          padding: 20px;
+          background-color: #121212;
+          color: #e0e0e0;
+          border-radius: 8px;
+          box-shadow: 0 4px 8px rgba(0,0,0,0.5);
           text-align: center;
+        }
+        header h1 {
+          color: #e0e0e0;
+          margin-bottom: 20px;
+        }
+        .info {
+          margin: 20px 0;
+        }
+        .account-info {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
+        .button {
+          padding: 10px 20px;
+          margin: 10px;
+          border: none;
+          border-radius: 5px;
+          background-color: #6200ea;
+          color: #e0e0e0;
+          cursor: pointer;
+          font-size: 16px;
+        }
+        .button:hover {
+          background-color: #3700b3;
+        }
+        .select, .input {
+          padding: 10px;
+          margin: 10px;
+          border: 1px solid #333;
+          border-radius: 5px;
+          background-color: #333;
+          color: #e0e0e0;
+          font-size: 16px;
+        }
+        .game-controls {
+          margin-top: 20px;
+        }
+        .loading {
+          font-size: 18px;
+          color: #888;
+        }
+        .error {
+          color: #ff5252;
+          font-size: 18px;
+        }
+        .result {
+          margin-top: 20px;
+          font-size: 18px;
+          font-weight: bold;
+        }
+        .result.won {
+          color: #00e676;
+        }
+        .result.lost {
+          color: #ff5252;
         }
       `}</style>
     </main>
   );
+  
 }

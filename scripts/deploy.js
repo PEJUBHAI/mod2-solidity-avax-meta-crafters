@@ -1,10 +1,10 @@
 async function main() {
   // Get the contract factory
-  const SimplePokemonGame = await ethers.getContractFactory("SimplePokemonGame");
+  const SimpleCoinFlip = await ethers.getContractFactory("SimpleCoinFlip");
   
   // Deploy the contract
-  const simplePokemonGame = await SimplePokemonGame.deploy();
-  console.log("Contract deployed to address:", simplePokemonGame.address);
+  const simpleCoinFlip = await SimpleCoinFlip.deploy();
+  console.log("Contract deployed to address:", simpleCoinFlip.address);
 }
 
 // Run the main function and handle errors
